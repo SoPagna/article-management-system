@@ -1,14 +1,11 @@
-﻿using System;
-using System.Linq;
-using Microsoft.AspNetCore.Mvc;
+﻿using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Identity;
 using ArticleManagementSystem.Models;
 using ArticleManagementSystem.Data;
-using System.Collections.Generic;
-using System.Security.Claims;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authentication;
+using ArticleManagementSystem.Services;
 
 namespace ArticleManagementSystem.Controllers
 {
@@ -16,30 +13,27 @@ namespace ArticleManagementSystem.Controllers
     {
         private ArticleManagementDbContext _context;
         private PasswordHasher<string> passwordHasher;
+        private readonly UserService userService;
 
-        public AccountController(ArticleManagementDbContext context)
+        public AccountController(ArticleManagementDbContext context, UserService userService)
         {
             this._context = context;
             this.passwordHasher = new PasswordHasher<string>();
+            this.userService = userService;
         }
 
         [HttpGet]
         public ViewResult Register() => View();
 
         [HttpPost]
-        public IActionResult Register([Bind("Name", "Email", "Password", "ConfirmPassword")] RegisterViewModel registerViewModel)
+        public async Task<IActionResult> Register(RegisterViewModel registerViewModel)
         {
-            if (ModelState.IsValid)
+            if (ModelState.IsValid && this.userService.Register(registerViewModel) != null)
             {
-                var user = new User()
+                if (await this.userService.Login(registerViewModel.Email, registerViewModel.Password, false))
                 {
-                    Name = registerViewModel.Name,
-                    Email = registerViewModel.Email,
-                    Password = passwordHasher.HashPassword(null, registerViewModel.Password)
-                };
-
-                _context.Users.Add(user);
-                _context.SaveChanges();
+                    return RedirectToAction("Index", "Article");
+                }
 
                 return RedirectToAction(nameof(Login));
             }
@@ -51,30 +45,13 @@ namespace ArticleManagementSystem.Controllers
         public IActionResult Login() => View();
 
         [HttpPost]
-        public async Task<IActionResult> Login(LoginViewModel loginData)
+        public async Task<IActionResult> Login(LoginViewModel loginViewModel)
         {
             if (ModelState.IsValid)
             {
-                User authUser = _context.Users.Where(user => user.Email.Equals(loginData.Email)).First();
-
-                if (authUser != null)
+                if (await this.userService.Login(loginViewModel.Email, loginViewModel.Password, loginViewModel.RememberMe))
                 {
-                    if (passwordHasher.VerifyHashedPassword(null, authUser.Password, loginData.Password) == PasswordVerificationResult.Success)
-                    {
-                        var claims = new List<Claim>
-                        {
-                            new Claim(ClaimTypes.NameIdentifier, authUser.ID.ToString()),
-                            new Claim(ClaimTypes.GivenName, authUser.Name),
-                            new Claim(ClaimTypes.Email, authUser.Email)
-                        };
-
-                        var claimsIdentity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
-                        var principal = new ClaimsPrincipal(claimsIdentity);
-                        var authProperties = new AuthenticationProperties { IsPersistent = loginData.RememberMe };
-                        await HttpContext.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, principal, authProperties);
-
-                        return RedirectToAction("Index", "Article");
-                    }
+                    return RedirectToAction("Index", "Article");
                 }
 
                 ModelState.AddModelError("AuthErrorMessage", "Email or Password is incorrect!");

@@ -1,49 +1,27 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
-using System.Security.Claims;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using ArticleManagementSystem.Data;
+﻿using Microsoft.AspNetCore.Mvc;
 using ArticleManagementSystem.Models;
 using Microsoft.AspNetCore.Authorization;
+using ArticleManagementSystem.Repositories;
+using ArticleManagementSystem.Services;
 
 namespace ArticleManagementSystem.Controllers
 {
     [Authorize]
     public class ArticleController : Controller
     {
-        private ArticleManagementDbContext _context;
+        private readonly IArticleRepository articleRepository;
+        private readonly UserService userService;
 
-        public ArticleController(ArticleManagementDbContext context)
+        public ArticleController(IArticleRepository articleRepository, UserService userService)
         {
-            this._context = context;
+            this.articleRepository = articleRepository;
+            this.userService = userService;
         }
 
         [HttpGet]
         public IActionResult Index([FromQuery(Name = "search")] string searchTerm, [FromQuery(Name = "sortTitleBy")] string sortTitleBy)
         {
-            int userID = Int32.Parse(User.FindFirst(ClaimTypes.NameIdentifier).Value);
-            var articles = from item in _context.Articles where item.CreatedBy == userID select item;
-
-            // Search by Title
-            if (!String.IsNullOrEmpty(searchTerm))
-            {
-                articles = articles.Where(article => article.Title.Contains(searchTerm));
-            }
-
-            // Sort by Title
-            if (sortTitleBy == "desc")
-            {
-                articles = articles.OrderByDescending(article => article.Title);
-            }
-            else
-            {
-                articles = articles.OrderBy(article => article.Title);
-            }
-
-            return View(articles.ToList());
+            return View(this.articleRepository.GetArticles(searchTerm, this.userService.GetAuthUserID(), sortTitleBy));
         }
 
         [HttpGet]
@@ -54,9 +32,8 @@ namespace ArticleManagementSystem.Controllers
         {
             if (ModelState.IsValid)
             {
-                article.CreatedBy = Int32.Parse(User.FindFirst(ClaimTypes.NameIdentifier).Value);
-                _context.Articles.Add(article);
-                _context.SaveChanges();
+                article.CreatedBy = this.userService.GetAuthUserID();
+                this.articleRepository.Create(article);
 
                 return RedirectToAction(nameof(Index));
             }
@@ -67,9 +44,9 @@ namespace ArticleManagementSystem.Controllers
         [HttpGet]
         public IActionResult Edit(int ID)
         {
-            Article article = _context.Articles.Find(ID);
+            Article article = this.articleRepository.GetArticle(ID, this.userService.GetAuthUserID());
 
-            if (article == null || !IsArticleWriter(ID))
+            if (article == null)
             {
                 return NotFound();
             }
@@ -80,30 +57,15 @@ namespace ArticleManagementSystem.Controllers
         [HttpPost]
         public IActionResult Edit(int ID, [Bind("ID", "Title", "Description", "Date")] Article article)
         {
-            if (ID != article.ID || !IsArticleWriter(ID))
+            if (ID != article.ID)
             {
                 return NotFound();
             }
 
             if (ModelState.IsValid)
             {
-                try
-                {
-                    article.CreatedBy = Int32.Parse(User.FindFirst(ClaimTypes.NameIdentifier).Value);
-                    _context.Update(article);
-                    _context.SaveChanges();
-                }
-                catch (DbUpdateConcurrencyException)
-                {
-                    if (!ArticleExists(article.ID))
-                    {
-                        return NotFound();
-                    }
-                    else
-                    {
-                        throw;
-                    }
-                }
+                article.CreatedBy = this.userService.GetAuthUserID();
+                this.articleRepository.Update(article);
 
                 return RedirectToAction(nameof(Index));
             }
@@ -114,23 +76,19 @@ namespace ArticleManagementSystem.Controllers
         [HttpGet]
         public IActionResult Delete(int ID)
         {
-            Article article = _context.Articles.Find(ID);
-
-            if (article == null || !IsArticleWriter(ID))
+            if (this.articleRepository.GetArticle(ID, this.userService.GetAuthUserID()) == null)
             {
                 return NotFound();
             }
 
-            _context.Remove(article);
-            _context.SaveChanges();
-
+            this.articleRepository.Delete(ID);
             return RedirectToAction(nameof(Index));
         }
 
         [HttpGet]
         public IActionResult Show(int ID)
         {
-            Article article = _context.Articles.Find(ID);
+            Article article = this.articleRepository.GetArticle(ID);
 
             if (article == null)
             {
@@ -138,14 +96,6 @@ namespace ArticleManagementSystem.Controllers
             }
 
             return View(article);
-        }
-
-        private bool ArticleExists(int ID) => _context.Articles.Any(article => article.ID == ID);
-
-        private bool IsArticleWriter(int ID)
-        {
-            int userID = Int32.Parse(User.FindFirst(ClaimTypes.NameIdentifier).Value);
-            return _context.Articles.Any(article => article.ID == ID && article.CreatedBy == userID);
         }
     }
 }
