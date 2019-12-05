@@ -29,9 +29,9 @@ namespace ArticleManagementSystem.Services
             return Int32.Parse(httpContextAccessor.HttpContext.User.FindFirst(ClaimTypes.NameIdentifier).Value);
         }
 
-        public User GetUser(string email)
+        public bool VerifyEmail(string email)
         {
-            return this.userRepository.GetUser(email);
+            return this.userRepository.GetUser(email) != null;
         }
 
         public User Register(RegisterViewModel registerViewModel)
